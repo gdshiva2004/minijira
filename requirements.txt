@@ -1,4 +1,4 @@
-Flask>=3.0
-pymongo>=4.6
-python-dotenv>=1.0
-requests>=2.31
+Flask
+pymongo
+python-dotenv
+requests

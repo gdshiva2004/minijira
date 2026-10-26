@@ -6,47 +6,57 @@ import requests
 from werkzeug.serving import make_server
 
 from app import create_app
-from app.config import TestConfig
 
-
-logging.getLogger("werkzeug").setLevel(logging.ERROR)  # quiet request logs
+logging.getLogger("werkzeug").setLevel(logging.ERROR)  # hide request logs
 
 
 class ApiTestCase(unittest.TestCase):
+    """Starts the real app on a free port, using the TEST database."""
+
     @classmethod
     def setUpClass(cls):
-        cls.app = create_app(TestConfig)
-        # Safety: never wipe a database that is not clearly a test database.
-        assert "test" in cls.app.config["DB_NAME"].lower(), "Refusing to use a non-test DB"
-        cls.db = cls.app.extensions["mongo_db"]
+        cls.app = create_app(testing=True)
+        # safety: never empty a database that is not clearly a test database
+        assert "test" in cls.app.db.name.lower(), "Not a test database!"
         cls.server = make_server("127.0.0.1", 0, cls.app)
-        cls.base_url = f"http://127.0.0.1:{cls.server.server_port}"
-        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
-        cls.thread.start()
+        cls.base = "http://127.0.0.1:%d" % cls.server.server_port
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
 
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
-        cls.thread.join(timeout=5)
-        cls.app.extensions["mongo_client"].close()
 
     def setUp(self):
-        self.db.members.delete_many({})
-        self.db.tasks.delete_many({})
+        # every test starts with an empty test database
+        self.app.db.members.delete_many({})
+        self.app.db.tasks.delete_many({})
 
-    def url(self, path):
-        return self.base_url + path
+    # --- helpers ---
+    def post(self, path, body):
+        return requests.post(self.base + path, json=body, timeout=5)
+
+    def get(self, path, params=None):
+        return requests.get(self.base + path, params=params, timeout=5)
+
+    def put(self, path, body):
+        return requests.put(self.base + path, json=body, timeout=5)
+
+    def patch(self, path, body, actor_id=None):
+        headers = {"X-Member-Id": actor_id} if actor_id else {}
+        return requests.patch(self.base + path, json=body, headers=headers, timeout=5)
 
     def make_member(self, name="Asha", role="Developer"):
-        r = requests.post(self.url("/members"), json={"name": name, "role": role}, timeout=5)
-        self.assertEqual(r.status_code, 201, r.text)
-        return r.json()
+        return self.post("/members", {"name": name, "role": role}).json()
 
-    def make_task(self, title="Fix login", description="Login page crashes", priority="High"):
-        r = requests.post(
-            self.url("/tasks"),
-            json={"title": title, "description": description, "priority": priority},
-            timeout=5,
-        )
-        self.assertEqual(r.status_code, 201, r.text)
-        return r.json()
+    def make_task(self, title="Fix login"):
+        body = {"title": title, "description": "Some details", "priority": "High"}
+        return self.post("/tasks", body).json()
+
+    def assign(self, task, member_id):
+        return self.put("/tasks/" + task["id"] + "/assignee", {"assignee_id": member_id})
+
+    def set_status(self, task, status, actor_id=None):
+        return self.patch("/tasks/" + task["id"] + "/status", {"status": status}, actor_id)
+
+    def read_task(self, task):
+        return self.get("/tasks/" + task["id"]).json()
