@@ -110,7 +110,7 @@ class OwnershipTests(ApiTestCase):
         self.assign(task, member["id"])
         r = self.assign(task, "b" * 24)
         self.assertEqual(r.status_code, 404)
-        self.assertEqual(self.read_task(task)["assignee_id"], member["id"])  # unchanged
+        self.assertEqual(self.read_task(task)["assignee_id"], member["id"])
 
     def test_bad_member_id(self):
         self.assertEqual(self.assign(self.make_task(), "xyz").status_code, 400)
