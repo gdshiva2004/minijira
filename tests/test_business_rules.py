@@ -2,8 +2,6 @@ from tests.base import ApiTestCase
 
 
 class AssigneeRuleTests(ApiTestCase):
-    """Day 6: a task without an assignee cannot move forward."""
-
     def setUp(self):
         super().setUp()
         self.dev = self.make_member("Dev", "Developer")
@@ -68,8 +66,6 @@ class AssigneeRuleTests(ApiTestCase):
 
 
 class QaSignOffTests(ApiTestCase):
-    """Day 7: only QA can mark a task as Done."""
-
     def setUp(self):
         super().setUp()
         self.dev = self.make_member("Dev", "Developer")
@@ -101,14 +97,11 @@ class QaSignOffTests(ApiTestCase):
         self.assertEqual(r.status_code, 409)
 
     def test_only_qa_check_applies_to_done_only(self):
-        # a developer may still move a task between To Do and In Progress
         r = self.set_status(self.task, "To Do", self.dev["id"])
         self.assertEqual(r.status_code, 200)
 
 
 class ActorTests(ApiTestCase):
-    """Day 7: the API must know who is changing the status."""
-
     def setUp(self):
         super().setUp()
         self.dev = self.make_member("Dev", "Developer")
@@ -130,8 +123,6 @@ class ActorTests(ApiTestCase):
 
 
 class AuditTrailTests(ApiTestCase):
-    """Day 7: record who changed a task and when."""
-
     def test_new_task_has_no_history(self):
         task = self.make_task()
         self.assertIsNone(task["status_changed_by"])
@@ -158,5 +149,5 @@ class AuditTrailTests(ApiTestCase):
     def test_rejected_change_is_not_recorded(self):
         dev = self.make_member("Dev", "Developer")
         task = self.make_task()
-        self.set_status(task, "In Progress", dev["id"])  # rejected: no assignee
+        self.set_status(task, "In Progress", dev["id"])
         self.assertEqual(self.read_task(task)["status_history"], [])

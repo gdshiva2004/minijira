@@ -6,18 +6,17 @@ import requests
 from werkzeug.serving import make_server
 
 from app import create_app
+from app.config import DB_NAME
 
-logging.getLogger("werkzeug").setLevel(logging.ERROR)  # hide request logs
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 
 class ApiTestCase(unittest.TestCase):
-    """Starts the real app on a free port, using the TEST database."""
-
     @classmethod
     def setUpClass(cls):
         cls.app = create_app(testing=True)
-        # safety: never empty a database that is not clearly a test database
         assert "test" in cls.app.db.name.lower(), "Not a test database!"
+        assert cls.app.db.name != DB_NAME, "TEST_DB_NAME must differ from DB_NAME"
         cls.server = make_server("127.0.0.1", 0, cls.app)
         cls.base = "http://127.0.0.1:%d" % cls.server.server_port
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
@@ -27,11 +26,9 @@ class ApiTestCase(unittest.TestCase):
         cls.server.shutdown()
 
     def setUp(self):
-        # every test starts with an empty test database
         self.app.db.members.delete_many({})
         self.app.db.tasks.delete_many({})
 
-    # --- helpers ---
     def post(self, path, body):
         return requests.post(self.base + path, json=body, timeout=5)
 

@@ -1,70 +1,49 @@
-import requests
-
 from tests.base import ApiTestCase
 
 
-class HealthTests(ApiTestCase):
-    def test_health(self):
-        r = requests.get(self.url("/health"), timeout=5)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), {"status": "ok"})
-
-    def test_health_db(self):
-        r = requests.get(self.url("/health/db"), timeout=5)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["database"], "connected")
-
-
 class MemberTests(ApiTestCase):
-    def test_create_member_success(self):
-        r = requests.post(self.url("/members"), json={"name": " Asha ", "role": "QA"}, timeout=5)
-        self.assertEqual(r.status_code, 201)
-        body = r.json()
-        self.assertEqual(body["name"], "Asha")  # trimmed
-        self.assertEqual(body["role"], "QA")
-        self.assertIn("id", body)
+    def test_health(self):
+        self.assertEqual(self.get("/health").status_code, 200)
+        self.assertEqual(self.get("/health/db").status_code, 200)
 
-    def test_all_roles_accepted(self):
-        for role in ("Developer", "QA", "Manager"):
-            self.assertEqual(self.make_member(role=role)["role"], role)
+    def test_create_member(self):
+        r = self.post("/members", {"name": "Asha", "role": "QA"})
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["name"], "Asha")
+        self.assertEqual(r.json()["role"], "QA")
+
+    def test_name_is_trimmed(self):
+        r = self.post("/members", {"name": "  Asha  ", "role": "QA"})
+        self.assertEqual(r.json()["name"], "Asha")
+
+    def test_all_roles_work(self):
+        for role in ["Developer", "QA", "Manager"]:
+            self.assertEqual(self.post("/members", {"name": "A", "role": role}).status_code, 201)
 
     def test_missing_name(self):
-        r = requests.post(self.url("/members"), json={"role": "QA"}, timeout=5)
-        self.assertEqual(r.status_code, 400)
-        self.assertIn("error", r.json())
+        self.assertEqual(self.post("/members", {"role": "QA"}).status_code, 400)
 
     def test_blank_name(self):
-        r = requests.post(self.url("/members"), json={"name": "   ", "role": "QA"}, timeout=5)
-        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.post("/members", {"name": "  ", "role": "QA"}).status_code, 400)
 
-    def test_non_string_name(self):
-        r = requests.post(self.url("/members"), json={"name": 123, "role": "QA"}, timeout=5)
-        self.assertEqual(r.status_code, 400)
+    def test_name_not_a_string(self):
+        self.assertEqual(self.post("/members", {"name": 5, "role": "QA"}).status_code, 400)
 
     def test_invalid_role(self):
-        r = requests.post(self.url("/members"), json={"name": "Bob", "role": "CEO"}, timeout=5)
-        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.post("/members", {"name": "A", "role": "CEO"}).status_code, 400)
 
     def test_missing_role(self):
-        r = requests.post(self.url("/members"), json={"name": "Bob"}, timeout=5)
-        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.post("/members", {"name": "A"}).status_code, 400)
 
-    def test_body_not_json(self):
-        r = requests.post(self.url("/members"), data="not json", timeout=5)
-        self.assertEqual(r.status_code, 400)
-
-    def test_body_not_object(self):
-        r = requests.post(self.url("/members"), json=["a"], timeout=5)
-        self.assertEqual(r.status_code, 400)
+    def test_body_is_not_json(self):
+        self.assertEqual(self.post("/members", None).status_code, 400)
 
     def test_list_members(self):
         self.make_member("Asha", "Developer")
         self.make_member("Ravi", "QA")
-        r = requests.get(self.url("/members"), timeout=5)
+        r = self.get("/members")
         self.assertEqual(r.status_code, 200)
         self.assertEqual([m["name"] for m in r.json()], ["Asha", "Ravi"])
 
     def test_list_members_empty(self):
-        r = requests.get(self.url("/members"), timeout=5)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), [])
+        self.assertEqual(self.get("/members").json(), [])

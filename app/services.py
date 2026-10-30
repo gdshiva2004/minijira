@@ -1,4 +1,3 @@
-"""Constants and small helper functions used by the routes."""
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -17,7 +16,6 @@ def now():
 
 
 def to_object_id(text):
-    """Turn a string into an ObjectId, or return None if it is not valid."""
     try:
         return ObjectId(text)
     except Exception:
@@ -34,7 +32,6 @@ def member_to_dict(member):
 
 def task_to_dict(task):
     assignee = task.get("assignee_id")
-    # .get() so older tasks without these fields still work
     changed_by = task.get("status_changed_by")
     changed_at = task.get("status_changed_at")
     history = []
