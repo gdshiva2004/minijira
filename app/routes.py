@@ -1,16 +1,15 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
+from pymongo.errors import DuplicateKeyError
 
+from .auth import check_credentials, create_token, hash_password, login_required
 from .database import get_db
 from .services import (
-    ROLES, PRIORITIES, STATUSES, MAX_NAME, MAX_TITLE, MAX_DESCRIPTION,
-    now, to_object_id, is_text, member_to_dict, task_to_dict,
+    ROLES, PRIORITIES, STATUSES,
+    MAX_NAME, MAX_TITLE, MAX_DESCRIPTION, MIN_PASSWORD, MAX_PASSWORD,
+    error, now, to_object_id, is_text, clean_email, member_to_dict, task_to_dict,
 )
 
 api = Blueprint("api", __name__)
-
-
-def error(message, code):
-    return jsonify({"error": message}), code
 
 
 def get_json():
@@ -30,17 +29,6 @@ def find_task(task_id):
     return task, None
 
 
-def get_actor():
-    member_id = request.headers.get("X-Member-Id")
-    if not member_id:
-        return None, error("X-Member-Id header is required", 401)
-    oid = to_object_id(member_id)
-    member = get_db().members.find_one({"_id": oid}) if oid else None
-    if member is None:
-        return None, error("Unknown member in X-Member-Id header", 401)
-    return member, None
-
-
 @api.get("/health")
 def health():
     return jsonify({"status": "ok"})
@@ -55,8 +43,8 @@ def health_db():
         return error("Database not reachable", 503)
 
 
-@api.post("/members")
-def create_member():
+@api.post("/auth/signup")
+def signup():
     data = get_json()
     if data is None:
         return error("Send a JSON object", 400)
@@ -64,21 +52,68 @@ def create_member():
         return error("name is required", 400)
     if len(data["name"].strip()) > MAX_NAME:
         return error("name must be at most %d characters" % MAX_NAME, 400)
+    email = clean_email(data.get("email"))
+    if email is None:
+        return error("A valid email is required", 400)
+    password = data.get("password")
+    if not isinstance(password, str) or len(password) < MIN_PASSWORD:
+        return error("password must be at least %d characters" % MIN_PASSWORD, 400)
+    if len(password) > MAX_PASSWORD:
+        return error("password must be at most %d characters" % MAX_PASSWORD, 400)
     if data.get("role") not in ROLES:
         return error("role must be one of: Developer, QA, Manager", 400)
 
-    member = {"name": data["name"].strip(), "role": data["role"]}
-    member["_id"] = get_db().members.insert_one(member).inserted_id
-    return jsonify(member_to_dict(member)), 201
+    members = get_db().members
+    members.create_index(
+        "email", unique=True, partialFilterExpression={"email": {"$type": "string"}}
+    )
+    if members.find_one({"email": email}) is not None:
+        return error("Email is already registered", 409)
+
+    member = {
+        "name": data["name"].strip(),
+        "email": email,
+        "role": data["role"],
+        "password_hash": hash_password(password),
+    }
+    try:
+        member["_id"] = members.insert_one(member).inserted_id
+    except DuplicateKeyError:
+        return error("Email is already registered", 409)
+    return jsonify({"token": create_token(member["_id"]), "member": member_to_dict(member)}), 201
+
+
+@api.post("/auth/login")
+def login():
+    data = get_json()
+    if data is None:
+        return error("Send a JSON object", 400)
+    email = clean_email(data.get("email"))
+    password = data.get("password")
+    if email is None or not isinstance(password, str) or password == "":
+        return error("email and password are required", 400)
+
+    member = get_db().members.find_one({"email": email})
+    if not check_credentials(member, password):
+        return error("Invalid email or password", 401)
+    return jsonify({"token": create_token(member["_id"]), "member": member_to_dict(member)})
+
+
+@api.get("/auth/me")
+@login_required
+def me():
+    return jsonify(member_to_dict(g.member))
 
 
 @api.get("/members")
+@login_required
 def list_members():
     members = [member_to_dict(m) for m in get_db().members.find().sort("_id", 1)]
     return jsonify(members)
 
 
 @api.post("/tasks")
+@login_required
 def create_task():
     data = get_json()
     if data is None:
@@ -109,6 +144,7 @@ def create_task():
 
 
 @api.get("/tasks")
+@login_required
 def list_tasks():
     status = request.args.get("status")
     query = {}
@@ -121,6 +157,7 @@ def list_tasks():
 
 
 @api.get("/tasks/<task_id>")
+@login_required
 def get_task(task_id):
     task, err = find_task(task_id)
     if err:
@@ -129,6 +166,7 @@ def get_task(task_id):
 
 
 @api.put("/tasks/<task_id>/assignee")
+@login_required
 def set_assignee(task_id):
     task, err = find_task(task_id)
     if err:
@@ -154,6 +192,7 @@ def set_assignee(task_id):
 
 
 @api.patch("/tasks/<task_id>/status")
+@login_required
 def change_status(task_id):
     task, err = find_task(task_id)
     if err:
@@ -163,10 +202,7 @@ def change_status(task_id):
     if data is None or data.get("status") not in STATUSES:
         return error("status must be one of: To Do, In Progress, Done", 400)
     new_status = data["status"]
-
-    actor, err = get_actor()
-    if err:
-        return err
+    actor = g.member
 
     if new_status == "Done" and actor["role"] != "QA":
         return error("Only a QA member can mark a task as Done", 403)

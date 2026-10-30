@@ -3,16 +3,17 @@ from unittest.mock import patch
 from bson import ObjectId
 from pymongo.errors import PyMongoError
 
+from app import create_app
 from tests.base import ApiTestCase
 
 
 class InputLimitTests(ApiTestCase):
     def test_name_too_long(self):
-        r = self.post("/members", {"name": "x" * 101, "role": "QA"})
+        r = self.signup(name="x" * 101, email="a@example.com", password="password123", role="QA")
         self.assertEqual(r.status_code, 400)
 
     def test_name_at_limit_is_ok(self):
-        r = self.post("/members", {"name": "x" * 100, "role": "QA"})
+        r = self.signup(name="x" * 100, email="b@example.com", password="password123", role="QA")
         self.assertEqual(r.status_code, 201)
 
     def test_title_too_long(self):
@@ -59,7 +60,7 @@ class OrderingTests(ApiTestCase):
         for name in ["A", "B", "C"]:
             self.make_member(name)
             self.make_task(name)
-        self.assertEqual([m["name"] for m in self.get("/members").json()], ["A", "B", "C"])
+        self.assertEqual([m["name"] for m in self.get("/members").json()], ["Admin", "A", "B", "C"])
         self.assertEqual([t["title"] for t in self.get("/tasks").json()], ["A", "B", "C"])
 
 
@@ -69,11 +70,27 @@ class ConcurrentChangeTests(ApiTestCase):
         task = self.make_task()
         self.assign(task, dev["id"])
         stale = self.app.db.tasks.find_one({"_id": ObjectId(task["id"])})
-        self.set_status(task, "In Progress", dev["id"])
+        self.set_status(task, "In Progress", dev)
 
         with patch("app.routes.find_task", return_value=(stale, None)):
-            r = self.set_status(task, "In Progress", dev["id"])
+            r = self.set_status(task, "In Progress", dev)
 
         self.assertEqual(r.status_code, 409)
         saved = self.read_task(task)
         self.assertEqual(len(saved["status_history"]), 1)
+
+
+class SecretCheckTests(ApiTestCase):
+    def test_app_refuses_to_start_without_secret(self):
+        with patch("app.JWT_SECRET", ""):
+            with self.assertRaises(RuntimeError):
+                create_app()
+
+    def test_app_refuses_short_secret(self):
+        with patch("app.JWT_SECRET", "too-short"):
+            with self.assertRaises(RuntimeError):
+                create_app()
+
+    def test_app_starts_with_long_secret(self):
+        with patch("app.JWT_SECRET", "x" * 40):
+            self.assertIsNotNone(create_app())

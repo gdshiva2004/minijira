@@ -1,4 +1,7 @@
-from tests.base import ApiTestCase
+import requests
+from bson import ObjectId
+
+from tests.base import ANONYMOUS, ApiTestCase
 
 
 class AssigneeRuleTests(ApiTestCase):
@@ -9,59 +12,59 @@ class AssigneeRuleTests(ApiTestCase):
         self.task = self.make_task()
 
     def test_unassigned_task_cannot_move_to_in_progress(self):
-        r = self.set_status(self.task, "In Progress", self.dev["id"])
+        r = self.set_status(self.task, "In Progress", self.dev)
         self.assertEqual(r.status_code, 409)
         self.assertEqual(self.read_task(self.task)["status"], "To Do")
 
     def test_unassigned_task_cannot_move_to_done(self):
-        r = self.set_status(self.task, "Done", self.qa["id"])
+        r = self.set_status(self.task, "Done", self.qa)
         self.assertEqual(r.status_code, 409)
         self.assertEqual(self.read_task(self.task)["status"], "To Do")
 
     def test_assigned_task_can_move_to_in_progress(self):
         self.assign(self.task, self.dev["id"])
-        r = self.set_status(self.task, "In Progress", self.dev["id"])
+        r = self.set_status(self.task, "In Progress", self.dev)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self.read_task(self.task)["status"], "In Progress")
 
     def test_task_unassigned_while_in_progress_cannot_be_signed_off(self):
         self.assign(self.task, self.dev["id"])
-        self.set_status(self.task, "In Progress", self.dev["id"])
+        self.set_status(self.task, "In Progress", self.dev)
         self.assign(self.task, None)
-        r = self.set_status(self.task, "Done", self.qa["id"])
+        r = self.set_status(self.task, "Done", self.qa)
         self.assertEqual(r.status_code, 409)
 
     def test_can_move_back_to_to_do(self):
         self.assign(self.task, self.dev["id"])
-        self.set_status(self.task, "In Progress", self.dev["id"])
-        r = self.set_status(self.task, "To Do", self.dev["id"])
+        self.set_status(self.task, "In Progress", self.dev)
+        r = self.set_status(self.task, "To Do", self.dev)
         self.assertEqual(r.status_code, 200)
 
     def test_same_status_rejected(self):
-        r = self.set_status(self.task, "To Do", self.dev["id"])
+        r = self.set_status(self.task, "To Do", self.dev)
         self.assertEqual(r.status_code, 409)
 
     def test_invalid_status(self):
-        r = self.set_status(self.task, "Blocked", self.dev["id"])
+        r = self.set_status(self.task, "Blocked", self.dev)
         self.assertEqual(r.status_code, 400)
         self.assertIn("error", r.json())
 
     def test_missing_status(self):
-        r = self.patch("/tasks/" + self.task["id"] + "/status", {}, self.dev["id"])
+        r = self.patch("/tasks/" + self.task["id"] + "/status", {}, self.dev)
         self.assertEqual(r.status_code, 400)
 
     def test_task_does_not_exist(self):
-        r = self.patch("/tasks/" + "e" * 24 + "/status", {"status": "In Progress"}, self.dev["id"])
+        r = self.patch("/tasks/" + "e" * 24 + "/status", {"status": "In Progress"}, self.dev)
         self.assertEqual(r.status_code, 404)
 
     def test_bad_task_id(self):
-        r = self.patch("/tasks/bad/status", {"status": "Done"}, self.dev["id"])
+        r = self.patch("/tasks/bad/status", {"status": "Done"}, self.dev)
         self.assertEqual(r.status_code, 400)
 
     def test_errors_have_same_shape(self):
-        for r in [self.set_status(self.task, "In Progress", self.dev["id"]),
-                  self.set_status(self.task, "Nope", self.dev["id"]),
-                  self.set_status(self.task, "Done")]:
+        for r in [self.set_status(self.task, "In Progress", self.dev),
+                  self.set_status(self.task, "Nope", self.dev),
+                  self.set_status(self.task, "Done", ANONYMOUS)]:
             self.assertEqual(list(r.json().keys()), ["error"])
 
 
@@ -73,53 +76,70 @@ class QaSignOffTests(ApiTestCase):
         self.manager = self.make_member("Mia", "Manager")
         self.task = self.make_task()
         self.assign(self.task, self.dev["id"])
-        self.set_status(self.task, "In Progress", self.dev["id"])
+        self.set_status(self.task, "In Progress", self.dev)
 
     def test_qa_can_mark_done(self):
-        r = self.set_status(self.task, "Done", self.qa["id"])
+        r = self.set_status(self.task, "Done", self.qa)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "Done")
 
     def test_developer_cannot_mark_done(self):
-        self.assertEqual(self.set_status(self.task, "Done", self.dev["id"]).status_code, 403)
+        self.assertEqual(self.set_status(self.task, "Done", self.dev).status_code, 403)
 
     def test_manager_cannot_mark_done(self):
-        self.assertEqual(self.set_status(self.task, "Done", self.manager["id"]).status_code, 403)
+        self.assertEqual(self.set_status(self.task, "Done", self.manager).status_code, 403)
 
     def test_rejected_sign_off_leaves_task_unchanged(self):
-        self.set_status(self.task, "Done", self.dev["id"])
+        self.set_status(self.task, "Done", self.dev)
         self.assertEqual(self.read_task(self.task)["status"], "In Progress")
 
     def test_cannot_skip_in_progress(self):
         other = self.make_task("Other")
         self.assign(other, self.dev["id"])
-        r = self.set_status(other, "Done", self.qa["id"])
+        r = self.set_status(other, "Done", self.qa)
         self.assertEqual(r.status_code, 409)
 
     def test_only_qa_check_applies_to_done_only(self):
-        r = self.set_status(self.task, "To Do", self.dev["id"])
+        r = self.set_status(self.task, "To Do", self.dev)
         self.assertEqual(r.status_code, 200)
 
 
-class ActorTests(ApiTestCase):
+class IdentityTests(ApiTestCase):
     def setUp(self):
         super().setUp()
         self.dev = self.make_member("Dev", "Developer")
+        self.qa = self.make_member("Quinn", "QA")
         self.task = self.make_task()
         self.assign(self.task, self.dev["id"])
 
-    def test_missing_header(self):
-        self.assertEqual(self.set_status(self.task, "In Progress").status_code, 401)
+    def test_status_change_requires_login(self):
+        self.assertEqual(self.set_status(self.task, "In Progress", ANONYMOUS).status_code, 401)
 
-    def test_malformed_header(self):
-        self.assertEqual(self.set_status(self.task, "In Progress", "nope").status_code, 401)
-
-    def test_unknown_member(self):
-        self.assertEqual(self.set_status(self.task, "In Progress", "d" * 24).status_code, 401)
-
-    def test_nothing_changes_without_actor(self):
-        self.set_status(self.task, "In Progress")
+    def test_nothing_changes_without_login(self):
+        self.set_status(self.task, "In Progress", ANONYMOUS)
         self.assertEqual(self.read_task(self.task)["status"], "To Do")
+
+    def test_forged_member_header_is_ignored(self):
+        self.set_status(self.task, "In Progress", self.dev)
+        r = requests.patch(
+            self.base + "/tasks/" + self.task["id"] + "/status",
+            json={"status": "Done"},
+            headers={"Authorization": "Bearer " + self.dev["token"], "X-Member-Id": self.qa["id"]},
+            timeout=5,
+        )
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.read_task(self.task)["status"], "In Progress")
+
+    def test_history_records_the_logged_in_member(self):
+        self.set_status(self.task, "In Progress", self.dev)
+        entry = self.read_task(self.task)["status_history"][0]
+        self.assertEqual(entry["changed_by"], self.dev["id"])
+
+    def test_role_is_read_from_database_not_from_token(self):
+        self.set_status(self.task, "In Progress", self.dev)
+        self.assertEqual(self.set_status(self.task, "Done", self.dev).status_code, 403)
+        self.app.db.members.update_one({"_id": ObjectId(self.dev["id"])}, {"$set": {"role": "QA"}})
+        self.assertEqual(self.set_status(self.task, "Done", self.dev).status_code, 200)
 
 
 class AuditTrailTests(ApiTestCase):
@@ -133,8 +153,8 @@ class AuditTrailTests(ApiTestCase):
         qa = self.make_member("Quinn", "QA")
         task = self.make_task()
         self.assign(task, dev["id"])
-        self.set_status(task, "In Progress", dev["id"])
-        self.set_status(task, "Done", qa["id"])
+        self.set_status(task, "In Progress", dev)
+        self.set_status(task, "Done", qa)
 
         saved = self.read_task(task)
         self.assertEqual(saved["status_changed_by"], qa["id"])
@@ -149,5 +169,5 @@ class AuditTrailTests(ApiTestCase):
     def test_rejected_change_is_not_recorded(self):
         dev = self.make_member("Dev", "Developer")
         task = self.make_task()
-        self.set_status(task, "In Progress", dev["id"])
+        self.set_status(task, "In Progress", dev)
         self.assertEqual(self.read_task(task)["status_history"], [])

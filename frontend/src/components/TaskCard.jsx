@@ -1,24 +1,30 @@
+import Avatar from "./Avatar";
+
 const STATUSES = ["To Do", "In Progress", "Done"];
 
-export default function TaskCard({ task, members, onAssign, onStatus }) {
+export default function TaskCard({ task, members, busy, onAssign, onStatus }) {
   function nameOf(id) {
     const member = members.find((m) => m.id === id);
     return member ? member.name : "Unknown member";
   }
 
+  const assignee = members.find((m) => m.id === task.assignee_id);
+
   return (
-    <article className="card">
+    <article className={busy ? "card busy" : "card"}>
       <div className="card-head">
         <h3>{task.title}</h3>
         <span className={"badge priority-" + task.priority.toLowerCase()}>{task.priority}</span>
       </div>
       <p className="description">{task.description}</p>
 
-      <label className="field">
-        Assignee
+      <div className="assignee">
+        {assignee ? <Avatar name={assignee.name} size={26} /> : <span className="avatar empty-avatar" />}
         <select
           value={task.assignee_id || ""}
-          onChange={(e) => onAssign(task.id, e.target.value || null)}
+          disabled={busy}
+          aria-label="Assignee"
+          onChange={(e) => onAssign(task, e.target.value || null)}
         >
           <option value="">Unassigned</option>
           {members.map((m) => (
@@ -27,11 +33,11 @@ export default function TaskCard({ task, members, onAssign, onStatus }) {
             </option>
           ))}
         </select>
-      </label>
+      </div>
 
       <div className="actions">
         {STATUSES.filter((s) => s !== task.status).map((s) => (
-          <button type="button" key={s} onClick={() => onStatus(task.id, s)}>
+          <button type="button" className="secondary small" key={s} disabled={busy} onClick={() => onStatus(task, s)}>
             Move to {s}
           </button>
         ))}
@@ -43,8 +49,8 @@ export default function TaskCard({ task, members, onAssign, onStatus }) {
           <ul>
             {task.status_history.map((h, i) => (
               <li key={i}>
-                {h.from} to {h.to} by {nameOf(h.changed_by)} on{" "}
-                {new Date(h.changed_at).toLocaleString()}
+                <strong>{nameOf(h.changed_by)}</strong> moved it from {h.from} to {h.to}
+                <span className="when">{new Date(h.changed_at).toLocaleString()}</span>
               </li>
             ))}
           </ul>

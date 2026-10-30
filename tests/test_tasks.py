@@ -56,7 +56,7 @@ class FilterTaskTests(ApiTestCase):
         one = self.make_task("One")
         self.make_task("Two")
         self.assign(one, member["id"])
-        self.set_status(one, "In Progress", member["id"])
+        self.set_status(one, "In Progress", member)
 
         in_progress = self.get("/tasks", {"status": "In Progress"}).json()
         to_do = self.get("/tasks", {"status": "To Do"}).json()
